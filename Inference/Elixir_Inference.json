@@ -1,0 +1,210 @@
+{
+  "metadata": {
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 5,
+  "cells": [
+    {
+      "cell_type": "code",
+      "metadata": {
+        "vscode": {
+          "languageId": "plaintext"
+        }
+      },
+      "source": [
+        "#Install dependencies\n",
+        "!pip install transformer torch accelerate bitsandbytes"
+      ],
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "vscode": {
+          "languageId": "plaintext"
+        }
+      },
+      "source": [
+        "#Import dependencies\n",
+        "from transformers import AutoModelForCausalLM, AutoTokenizer\n",
+        "import torch"
+      ],
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "vscode": {
+          "languageId": "plaintext"
+        }
+      },
+      "source": [
+        "# Hugging Face login (required for Llama models)\n",
+        "from huggingface_hub import login\n",
+        "\n",
+        "# Option 1: Use token from environment\n",
+        "os.environ[\"HF_TOKEN\"] = \"your_token_id\"\n",
+        "login(token=os.environ[\"HF_TOKEN\"])\n",
+        "\n",
+        "# Option 2: Interactive login\n",
+        "# login()"
+      ],
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "vscode": {
+          "languageId": "plaintext"
+        }
+      },
+      "source": [
+        "# Name/Paths of the model/tokenizer\n",
+        "model_path = \"ShivomH/Elixir-MentalHealth-3B\"\n",
+        "\n",
+        "# Load tokenizer\n",
+        "tokenizer = AutoTokenizer.from_pretrained(model_path)\n",
+        "\n",
+        "# Load model (quantization if needed)\n",
+        "model = AutoModelForCausalLM.from_pretrained(\n",
+        "    model_path,\n",
+        "    torch_dtype=torch.bfloat16,\n",
+        "    device_map=\"auto\"\n",
+        ")"
+      ],
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "vscode": {
+          "languageId": "plaintext"
+        }
+      },
+      "source": [
+        "def generate_response(\n",
+        "    model,\n",
+        "    tokenizer,\n",
+        "    messages,\n",
+        "    max_new_tokens=256,\n",
+        "    # temperature=0.5,\n",
+        "    # top_p=0.8,\n",
+        "    do_sample=True\n",
+        "):\n",
+        "    \"\"\"\n",
+        "    Generate response from the model given messages.\n",
+        "\n",
+        "    Args:\n",
+        "        messages: List of message dicts with 'role' and 'content'\n",
+        "\n",
+        "    Returns:\n",
+        "        Generated response string\n",
+        "    \"\"\"\n",
+        "    # Apply chat template\n",
+        "    prompt = tokenizer.apply_chat_template(\n",
+        "        messages,\n",
+        "        tokenize=False,\n",
+        "        add_generation_prompt=True\n",
+        "    )\n",
+        "\n",
+        "    # Tokenize\n",
+        "    inputs = tokenizer(\n",
+        "        prompt,\n",
+        "        return_tensors=\"pt\",\n",
+        "        truncation=True,\n",
+        "        max_length=1024\n",
+        "    ).to(model.device)\n",
+        "\n",
+        "    # Generate\n",
+        "    with torch.no_grad():\n",
+        "        outputs = model.generate(\n",
+        "            **inputs,\n",
+        "            max_new_tokens=max_new_tokens,\n",
+        "            # temperature=temperature,\n",
+        "            do_sample=do_sample,\n",
+        "            # top_p=top_p,\n",
+        "            eos_token_id=tokenizer.eos_token_id,\n",
+        "            pad_token_id=tokenizer.pad_token_id,\n",
+        "        )\n",
+        "\n",
+        "    # Decode\n",
+        "    generated = tokenizer.decode(outputs[0], skip_special_tokens=True)\n",
+        "\n",
+        "    # Extract assistant response\n",
+        "    response = generated.split(\"assistant\\n\")[-1].strip()\n",
+        "\n",
+        "    return response\n",
+        "\n",
+        "print(\"Inference function ready!\")"
+      ],
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "vscode": {
+          "languageId": "plaintext"
+        }
+      },
+      "source": [
+        "# Interactive chat interface\n",
+        "print(\"=\"*60)\n",
+        "print(\"💬 Mental Health Support Chat\")\n",
+        "print(\"Type 'quit' to exit, 'reset' to start a new conversation\")\n",
+        "print(\"=\"*60)\n",
+        "\n",
+        "# System prompt\n",
+        "system_message = {\n",
+        "    \"role\": \"system\",\n",
+        "    \"content\": \"\"\"You a supportive and empathetic AI assistant trained to provide mental health and medical guidance.\n",
+        "    Your responses should be warm, professional, and safe.\n",
+        "    - Prioritize active listening, validation, and evidence-based strategies.\n",
+        "    - Do not attempt to diagnose or prescribe medications.\n",
+        "    - Always remind users that they should consult a licensed professional for medical or crisis support.\n",
+        "    - If the user expresses self-harm or crisis thoughts, encourage them to reach out to a helpline or emergency services immediately.\"\"\"\n",
+        "}\n",
+        "\n",
+        "# Conversation history\n",
+        "conversation = [system_message]\n",
+        "\n",
+        "while True:\n",
+        "    # Get user input\n",
+        "    user_input = input(\"\\nYou: \").strip()\n",
+        "\n",
+        "    if user_input.lower() == 'quit':\n",
+        "        print(\"Goodbye! Take care.\")\n",
+        "        break\n",
+        "\n",
+        "    if user_input.lower() == 'reset':\n",
+        "        conversation = [system_message]\n",
+        "        print(\"Conversation reset.\")\n",
+        "        continue\n",
+        "\n",
+        "    if not user_input:\n",
+        "        continue\n",
+        "\n",
+        "    # Add user message\n",
+        "    conversation.append({\"role\": \"user\", \"content\": user_input})\n",
+        "\n",
+        "    # Generate assistant reply\n",
+        "    reply = generate_response(model, tokenizer, conversation)\n",
+        "\n",
+        "    # Add assistant message to history\n",
+        "    conversation.append({\"role\": \"assistant\", \"content\": reply})\n",
+        "\n",
+        "    # Print assistant response\n",
+        "    print(f\"\\nAssistant: {reply}\")"
+      ],
+      "execution_count": null,
+      "outputs": []
+    }
+  ]
+}
